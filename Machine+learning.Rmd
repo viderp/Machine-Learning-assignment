@@ -1,0 +1,150 @@
+---
+title: "Untitled"
+author: "Viderp"
+date: "2021/6/4"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Machine Learning assignment Weida Pan(369868) & Zhe Zhao(433707)
+R language logistic regression (Logistic regression) model classification prediction patient coronary heart disease risk data analysis report
+
+```{r}
+library(tidyverse)
+library(broom)
+library(pROC)
+library(plotROC) 
+library(knitr)
+
+```
+## Load data 
+```{r}
+setwd("C:/Users/ICBC/Desktop/exam requirment/machine")
+heart_data <- read_csv("framingham.csv") %>%
+  drop_na() %>% 
+  mutate(education = case_when(
+    education == 1 ~ "Some HS", 
+    education == 2 ~ "HS or GED", 
+    education == 3 ~ "Some College", 
+    education == 4 ~ "College"
+  ),
+  TenYearCHD = as.factor(TenYearCHD), 
+  currentSmoker = as.factor(currentSmoker),
+  ageCent = age - mean(age), 
+  totCholCent = totChol - mean(totChol), 
+  BPMeds = as.factor(BPMeds), 
+  prevalentStroke = as.factor(prevalentStroke), 
+  prevalentHyp = as.factor(prevalentHyp), 
+  male = as.factor(male), 
+  diabetes = as.factor(diabetes)
+  )
+
+```
+
+
+##Fit logistic regression model
+```{r car}
+risk_m <- glm(TenYearCHD ~ ageCent + currentSmoker + totCholCent, 
+              data = heart_data, family = binomial)
+tidy(risk_m, conf.int = TRUE, exponentiate = FALSE) %>% 
+  kable(format = "markdown", digits = 3)
+```
+##prediction for new patients
+```{r}
+x0 <- data_frame(ageCent = (60 - 49.552), 
+                 totCholCent = (263 - 236.848), 
+                 currentSmoker = as.factor(0))
+
+x0
+```
+
+#Predicted probability
+
+```{r}
+predict(risk_m, x0, type = "response")
+
+risk_m_aug <- augment(risk_m, type.predict = "response" )
+risk_m_aug
+```
+
+##Confusion matrix
+```{r}
+threshold <- 0.1
+risk_m_aug %>%
+  mutate(risk_predict = if_else(.fitted > threshold, "1: Yes", "0: No")) %>%
+  group_by(TenYearCHD, risk_predict) %>%
+  summarise(n = n()) %>%
+  kable(format="markdown")
+
+
+risk_m_aug %>%
+  mutate(risk_predict = if_else(.fitted > threshold, "1: Yes", "0: No")) %>%
+  select(TenYearCHD, risk_predict)
+```
+
+##Roc Curve
+```{r}
+(roc_curve <- ggplot(risk_m_aug, 
+                     aes(d = as.numeric(TenYearCHD) - 1, 
+                         m = .fitted)) +
+    geom_roc(n.cuts = 10, labelround = 3) + 
+    geom_abline(intercept = 0) + 
+    labs(x = "False positive rate (1-specificity)", 
+         y = "True positive rate (sensitivity)") )
+
+calc_auc(roc_curve)$AUC
+```
+
+#Plot the original residuals
+```{r}
+ggplot(data = risk_m_aug, aes(x = .fitted, y = .resid)) +
+  geom_point() +
+  geom_hline(yintercept = 0, color = "red") +
+  labs(x = "Predictive value", y = "Original residual")
+```
+
+#classify residual plot
+```{r}
+arm::binnedplot(x = risk_m_aug$.fitted, y = risk_m_aug$.resid,
+                xlab = "Predicted probability", 
+                main = "Comparison of residual value and predicted 
+                value after classification", 
+                col.int = FALSE)
+```
+
+#The relationship between graded residuals and age
+```{r}
+arm::binnedplot(x = risk_m_aug$ageCent, 
+                y = risk_m_aug$.resid, 
+                col.int = FALSE,
+                xlab = "Age (centered on the average)", 
+                main = "The relationship between graded 
+residuals and age")
+```
+
+#Classified Residuals and Total Cholesterol
+```{r}
+arm::binnedplot(x = risk_m_aug$totCholCent, 
+                y = risk_m_aug$.resid, 
+                col.int = FALSE,
+                xlab = "Total cholesterol (centered on average)", 
+     
+                           main = "Classified Residuals and Total Cholesterol")
+```
+
+# Use stepwise regression to select the model
+```{r}
+full_model <- glm(TenYearCHD ~ ., data = heart_data, family = "binomial")
+select_model <- step(full_model, direction = "backward")
+
+
+tidy(select_model, conf.int = TRUE, exponentiate = FALSE) %>%
+kable(format = "markdown", digits = 3)
+```
+
