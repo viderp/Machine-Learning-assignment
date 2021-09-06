@@ -1,0 +1,432 @@
+---
+title: "NBA Data Analysis"
+author: "Zhe Zhao(433707), Weida Pan(369868)"
+date: "2021/6/4"
+output:
+  html_document: default
+  pdf_document: default
+
+---
+
+<!-- set knitr options here -->
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+<!-- main body starts here -->
+
+# Introduction 
+NBA plays many games every year and investors shall pour some money to bet the results. Therefore analysing the historical competition results to find some clues on how to bet is very meaningful. Plus this can also help readers learn more about their beloved teams and players.
+
+I first examine the basic descriptive statistics of the NBA data to have a basic grasp, then I employed the clustering algorithm for both individuals and teams to find the relationship between different sample. Last linear regression is conducted to find the factors that determine a player's and a team's PTS, which can come into handy for bets.
+
+# Background 
+Sports investing is very popular among investors. How to bet money for each competition thereby is very crucial for the final profits.
+
+Descriptive statistic is very basic for readers to have an initial understanding of what we are going to explore. Clustering algorithm is very helpful to find similirity and differences, and lienar regression can quantitatively give a model to predict further behaviors. And individuals and teams are both worth studying.
+
+# Descriptive Statistics
+In this part, we will learn about the datasets by the very basic descriptive statistics.
+
+## Preprocessing
+After having a glimpse of the datasets some proprocessing work is needed, including:
+1) Change the variable SHOT_RESULT to bool one
+2) Change the variable LOCATION to bool ones(True for home , False for not home)
+3) Change the variable SHOT_CLOCK to numeric one
+
+## Players
+Now we first calculate the descriptive statistics of each individual player, descriptive statistics include average pts, average success, average home rate, average def_dist rate, average shot distance, average touch time, average dribble and average period. After calculation we plot the top 10 values of each variable to further observe.
+```{r player_stats, echo=FALSE}
+df <- read.csv('nbadata.csv', header = TRUE)
+options (warn = -1)
+
+# transformation of data type
+factor2bool <- function(m){
+  z <- c()
+  for (x in m){
+    if ((x == 'H') | (x == 'made')){z <- c(z, 1)}
+    else {z <- c(z, 0)}
+  }
+  return (z)
+}
+df$SHOT_RESULT <- as.numeric(factor2bool(df$SHOT_RESULT))
+df$SHOT_CLOCK <- as.numeric(df$SHOT_CLOCK)
+df$LOCATION <- as.numeric(factor2bool(df$LOCATION))
+
+## individual shot's analysis
+suppressMessages(library(dplyr))
+suppressMessages(library(ggplot2))
+suppressMessages(library(tidyr))
+
+
+group_by_players <- group_by(df, PLAYER_NAME)
+myAngle <-seq(-20,-340,length.out =7)
+
+# the distribution of numeric variables
+player_shot <- summarise(group_by_players,
+                   avg_pts = mean(PTS),
+                   avg_success = mean(SHOT_RESULT),  
+                   avg_home = mean(LOCATION),
+                   avg_def_dist = mean(CLOSE_DEF_DIST),
+                   avg_shot_dist = mean(SHOT_DIST),
+                   avg_touch_time = mean(TOUCH_TIME),
+                   avg_dribble = mean(DRIBBLES),
+                   avg_period = mean(PERIOD))
+
+for (n in 2:3){
+  player_shotsortby_avg<-player_shot[order(-player_shot[, n]),][1:10,]
+  variable <- 'variable'
+  value <- 'value'
+  gathercols <- colnames(player_shot)[-1]
+  player_shotsortby_avg <- gather(player_shotsortby_avg, variable, value, gathercols)
+  player_shotsortby_avg <- player_shotsortby_avg[player_shotsortby_avg$variable == colnames(player_shot)[n], ]
+  
+  if (max(player_shot[, n]) < 1){
+    p <- ggplot(player_shotsortby_avg) +
+      geom_bar(aes(x=PLAYER_NAME, y= value * 100),width = 1,stat="identity",
+               colour = "black",fill="#F8766D") +
+      geom_text(aes(x=PLAYER_NAME,y = .8*value * 100,label = round(value* 100, 2)
+      ),color="white") + labs(x='PLAYER_NAME',y=colnames(player_shot)[n]) + 
+      coord_polar(theta = "x",start=0) +
+      theme_light()+
+      theme( panel.background = element_blank(),
+             panel.grid.major = element_line(colour = "grey80",size=.25),
+             axis.text.y = element_text(size = 12,colour="black"),
+             axis.line.y = element_line(size=0.25),
+             axis.text.x=element_text(size = 13,colour="black",angle = myAngle))
+  }
+  else {
+    p <- ggplot(player_shotsortby_avg) +
+      geom_bar(aes(x=PLAYER_NAME, y= value ),width = 1,stat="identity",
+               colour = "black",fill="#F8766D") +
+      geom_text(aes(x=PLAYER_NAME,y = .8*value,label = round(value, 2)
+      ),color="white") + labs(x='PLAYER_NAME',y=colnames(player_shot)[n]) + 
+      coord_polar(theta = "x",start=0) +
+      theme_light()+
+      theme( panel.background = element_blank(),
+             panel.grid.major = element_line(colour = "grey80",size=.25),
+             axis.text.y = element_text(size = 12,colour="black"),
+             axis.line.y = element_line(size=0.25),
+             axis.text.x=element_text(size = 13,colour="black",angle = myAngle))
+    
+  }
+   print(p)
+}
+
+```
+
+Observing the plots of each variable, we can find that the players of the top 3 average PTS are Jordan, Chandler, Korver, and the players of the top 3 average successful rate are Jordan, Chandler, Gobert. This can help us have a basic grasp of individual player's ability.
+
+
+## Teams
+We can also apply the analysis of the individual player to the teams, including calculating the statistics and plot them.
+```{r Teams_stats, echo=FALSE}
+team <- c()
+for (i in 1:dim(df)[1]){
+  if (df[i, 'LOCATION'] == 1){
+    team <- c(team, as.character(df[i, 'HOME_TEAM']))
+  }
+  else {
+    team <- c(team, as.character(df[i, 'AWAY_TEAM']))
+  }
+}
+
+df <- data.frame(df, TEAM=team)
+group_by_teams <- group_by(df, TEAM)
+
+# the distribution of numeric variables
+team_shot <- summarise(group_by_teams,
+                         avg_pts = mean(PTS),
+                         avg_success = mean(SHOT_RESULT),  
+                         avg_home = mean(LOCATION),
+                         avg_def_dist = mean(CLOSE_DEF_DIST),
+                         avg_shot_dist = mean(SHOT_DIST),
+                         avg_touch_time = mean(TOUCH_TIME),
+                         avg_dribble = mean(DRIBBLES),
+                         avg_period = mean(PERIOD))
+
+for (n in 2:3){
+  team_shotsortby_avg<-team_shot[order(-team_shot[, n]),][1:10,]
+  variable <- 'variable'
+  value <- 'value'
+  gathercols <- colnames(team_shot)[-1]
+  team_shotsortby_avg <- gather(team_shotsortby_avg, variable, value, gathercols)
+  team_shotsortby_avg <- team_shotsortby_avg[team_shotsortby_avg$variable == colnames(team_shot)[n], ]
+  
+  if (max(team_shot[, n]) < 1){
+    p <- ggplot(team_shotsortby_avg) +
+      geom_bar(aes(x=TEAM, y= value * 100),width = 1,stat="identity",
+               colour = "black",fill="#F8766D") +
+      geom_text(aes(x=TEAM,y = .8*value * 100,label = round(value* 100, 2)
+      ),color="white") + labs(x='TEAM',y=colnames(player_shot)[n]) + 
+      coord_polar(theta = "x",start=0) +
+      theme_light()+
+      theme( panel.background = element_blank(),
+             panel.grid.major = element_line(colour = "grey80",size=.25),
+             axis.text.y = element_text(size = 12,colour="black"),
+             axis.line.y = element_line(size=0.25),
+             axis.text.x=element_text(size = 13,colour="black",angle = myAngle))
+  }
+  else {
+    p <- ggplot(team_shotsortby_avg) +
+      geom_bar(aes(x=TEAM, y= value ),width = 1,stat="identity",
+               colour = "black",fill="#F8766D") +
+      geom_text(aes(x=TEAM,y = .8*value,label = round(value, 2)
+      ),color="white") + labs(x='TEAM',y=colnames(team_shot)[n]) + 
+      coord_polar(theta = "x",start=0) +
+      theme_light()+
+      theme( panel.background = element_blank(),
+             panel.grid.major = element_line(colour = "grey80",size=.25),
+             axis.text.y = element_text(size = 12,colour="black"),
+             axis.line.y = element_line(size=0.25),
+             axis.text.x=element_text(size = 13,colour="black",angle = myAngle))
+    
+  }
+  print(p)
+}
+```
+
+After observing the plots we find that teams of the top 3 average PTS are GSW, LAC, ATL, and the teams of the top 3 average successful rate are GSW, LAC, WAS This can help us have a basic grasp of individual team's ability.
+
+
+# Clustering
+In this part we begin to analyze the relationship between variables and samples, which can shed a light on how each player and team is connected to each other and how one variable can impact on another one. Also like before, the same analysis is conducted for both players and teams. One thing to notice is that the data we are analyzing here is the descriptive statistics
+
+## Players
+The head of the descriptive statistics of the players is like the following:
+
+```{r player_descr, tidy=FALSE, echo=FALSE}
+knitr::kable(
+  head(player_shot, 10), caption = 'Descriptive Statistics of the Players',
+  booktabs = TRUE
+)
+```
+
+
+Next I shall analysize the clustering relationship of each player sample, i.e. I employed the hierarchical clustering to analyze the sample relationship. The first step is to specify the number of clusters, I plot the harmonic curve of the datasets and the number of the curve cluster is the appropriate cluster number to be used further. The harmonic curve of the players is the following plot.
+
+```{r player_harmonic, echo=FALSE}
+unison<-function(x){
+  # x is a matrix or data frame of data
+  if (is.data.frame(x)==TRUE)
+    x<-as.matrix(x)
+  t<-seq(-pi, pi, pi/30)
+  m<-nrow(x); n<-ncol(x)
+  f<-array(0, c(m,length(t)))
+  for(i in 1:m){
+    f[i,]<-x[i,1]/sqrt(2)
+    for( j in 2:n){
+      if (j%%2==0)
+        f[i,]<-f[i,]+x[i,j]*sin(j/2*t)
+      else
+        f[i,]<-f[i,]+x[i,j]*cos(j%/%2*t)
+    }
+  }
+  plot(c(-pi,pi), c(min(f),max(f)), type="n",
+       main="The Unison graph of Data",
+       xlab="t", ylab="f(t)")
+  for(i in 1:m) lines(t, f[i,] , col=i)
+}
+unison(player_shot[,-1])
+```
+
+Even though the curves are very concentrated in the plot, it still can be seen there are almost 3 clusters of curve in the plot, so will set the cluster number to be 3 and then employ the hierarchical clustering algorithm, the result is as follows.
+
+```{r player_cluster, echo=FALSE}
+suppressMessages(library(factoextra))
+row.names(player_shot) <- as.vector(as.matrix(player_shot[, 1]))
+dd <- dist(scale(player_shot[, -1]), method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+fviz_dend(hc, cex = 1, k = 3, 
+          k_colors = c("#2E9FDF", "#00AFBB", "#E7B800"), #,"#FC4E07"),
+          type = "phylogenic",
+          color_labels_by_k = FALSE, 
+          labels_track_height = 0.1,
+          repel = TRUE,
+          rect_lty = 0.5)
+```
+
+The result of the clustering is relatively concentrated, but after I compare the ids of each player I found that the players belonging to one team have been almost perfectly clustered into one group in this tree map, highlighting the differences of players between teams and the similarity of them in one team.
+
+
+## Team
+Now we employ the same analysis of individual player to the whole team.The head of the descriptive statistics of the teams is like the following:
+
+```{r team_descr, tidy=FALSE, echo=FALSE}
+knitr::kable(
+  head(team_shot, 10), caption = 'Descriptive Statistics of the Teams',
+  booktabs = TRUE
+)
+```
+
+Next I shall analysize the clustering relationship of each player sample and the method is the same as above, i.e. plotting harmonic curve
+
+```{r team_harmonic, echo=FALSE}
+unison(team_shot[,-1])
+``` 
+
+The curves can be categorized into around 3 clusters, so the clustering number I used is the same as above. The result of the teams' hierarchical clustering algorithm is as follow.
+
+
+```{r team_clustering, echo=FALSE}
+row.names(team_shot) <- as.vector(as.matrix(team_shot[, 1]))
+dd <- dist(scale(team_shot[, -1]), method = "euclidean")
+hc <- hclust(dd, method = "ward.D2")
+cluster<-cutree(hc, k=3)
+plot(hc,hang=-1,cex=0.8)
+rect.hclust(hc,k=3,)
+``` 
+
+Combing the ids in the plot and in the dataset and analyzing the team's clustering results I found the teams clustered into one group are almost from the same geographic regions, so when it comes to the clustering of teams, the regional factors play a bigger role.
+
+# Linear regression
+For the investors betting on each team, determining the average PTS is very crucial because PTS is the judgement of one team's final results. So it is very meaningful and instructive to study the factors affecting the average PTS. And I shall do that also for individual player and teams.
+
+## Player
+
+We first calculate the correlation matrix of the descriptive statistics of the players.
+
+```{r player_corr, echo=FALSE}
+suppressMessages(library(PerformanceAnalytics))
+chart.Correlation(player_shot[,-1], histogram=TRUE, pch=19)
+```
+
+From the plots above, we can see the relationship of each variable and we can find that for the individuals average succcessful rate, average shot distance, average touch time, average dribble and average period have a relatively significant correlation with the PTS. So the other variables should be skipped and only the significantly correlated variables should be contained in the model. The fitting result of the model is as following.
+
+```{r player_lm, echo=TRUE}
+player_lm <- lm(avg_pts ~ avg_success  + avg_shot_dist + avg_touch_time + avg_dribble + avg_period,data=player_shot)
+summary(player_lm)
+par(mfrow=c(2,2))
+plot(player_lm)
+```
+
+The P values of each variable are all smaller than 0.5, the most commonly used threshold to determine significance, expect for the variable average period. According to the estimate parameters, the average successful rate has the biggest impact on the average PTS, which chime with the fact that only when successful shot is made can PTS be added. The variable average shot distance and average dribble are alsmo positively correlated to the explained variable because as the rule goes the more distant the player makes a shot the more score the team will get. And the average touch time has a negative impact on the explained variable because the longer the ball is in the touch of players, the more likely it will be grabbed by another one. All the parameters' sign are the same with my expectations, but they have different impacting power, a must for factor analysis.
+
+The R-square of the model is very high, reflecting the model's high performance in fitting the original data, a measure also that can be seen in the plot subsequently. And the p-value of the model is also small enough, reflecting the model's significance
+
+
+## Team
+The same analysis for players shall be also employed to teams. The correlation matrix of the descriptive statistics of the teams is calculated as follows.
+
+```{r team_corr, echo=FALSE}
+chart.Correlation(team_shot[,-1], histogram=TRUE, pch=19)
+```
+
+From the plots above, we can see the relationship of each variable and we can find that for the teams average succcessful rate, average defendence and average dribble  have a relatively significant correlation with the PTS. So the other variables should be skipped and only the significantly correlated variables should be contained in the model. The fitting result of the model is as following.
+
+```{r team_lm, echo=TRUE}
+team_lm <- lm(avg_pts ~ avg_success + avg_def_dist + avg_dribble ,data=team_shot)
+summary(team_lm)
+par(mfrow=c(2,2))
+plot(team_lm)
+```
+
+Analyzing the regression result for teams we find all explaining variables in the model are significant enough. And the most influcential factor in the model is still the average successful rate of a team, with average defence distance and average dribble next in order. The higher average defence distance and average dribble is, the most collabrative the team players are, therefore the team can have a higher average PTS.
+
+```{r var_transformation, echo=TRUE}
+library("nnet")
+df <- read.csv('nbadata.csv', header = TRUE)
+
+df['SHOT_RESULT'] <- ifelse(df['SHOT_RESULT'] == 'made', 1, 0)  # transform the variable to forecase
+df <- df[, -1] ## drop id
+
+#dummy1 <- class.ind(df$DATE)
+df <- df[, -1]  ## date: one hot encoding
+
+dummy2 <- class.ind(df$HOME_TEAM)
+df <- df[, -1]  ## HOME_TEAM: one hot encoding
+
+#dummy3 <- class.ind(df$AWAY_TEAM)
+df <- df[, -1]  ## AWAY_TEAM: one hot encoding
+
+#dummy4 <- class.ind(df$PLAYER_NAME)
+df <- df[, -1]  ## PLAYER_NAME: one hot encoding
+
+df <- df[, -1]  # drop PLAYER_ID
+
+#dummy5 <- class.ind(df$LOCATION)
+df <- df[, -1]  ## LOCATION: one hot encoding
+
+#dummy6 <- class.ind(df$W)
+df <- df[, -1]  ## W: one hot encoding
+
+library(infotheo)
+nbins <- 5 
+df$FINAL_MARGIN <- discretize(df$FINAL_MARGIN,"equalwidth",nbins)  ## FINAL_MARGIN: bins
+
+#dummy7 <- class.ind(df$PERIOD)
+df <- df[, -3]  ## PERIOD: one hot encoding
+
+#dummy8 <- class.ind(df$GAME_CLOCK)
+df <- df[, -3]  ## GAME_CLOCK: one hot encoding
+
+#dummy9 <- class.ind(df$SHOT_CLOCK)
+df <- df[, -3]  ## SHOT_CLOCK: one hot encoding
+
+#dummy10 <- class.ind(df$PTS_TYPE)
+df <- df[, -6]  ## PTS_TYPE: one hot encoding
+
+#dummy11 <- class.ind(df$CLOSEST_DEFENDER)
+df <- df[, -7]  ## PTS_TYPE: one hot encoding
+
+df <- df[, -7]  # drop CLOSEST_DEFENDER_ID
+
+y <- df$SHOT_RESULT
+x <- cbind(df[, -6], dummy2)#, dummy1, dummy3, dummy4, dummy5, dummy6, dummy7, dummy8, dummy9, dummy10, dummy11)
+
+```
+
+
+```{r split_data, echo=TRUE}
+ind <- sample(nrow(df),nrow(df)*4/5)
+training_data <- x[ind,]
+training_y <- y[ind]
+
+testing_data <- x[-ind,]
+testing_y <- y[-ind]
+```
+
+```{r svm, echo=TRUE}
+library(e1071)
+svm.model <- svm(as.factor(training_y)~as.matrix(training_data))
+
+preds <- as.numeric(predict(svm.model, testing_data)) - 1 
+acc <- mean(preds == testing_y)
+print(acc)
+
+```
+
+```{r Decisin_Tree, echo=TRUE}
+library(C50)
+
+model <- C5.0(as.factor(training_y)~as.matrix(training_data))
+preds <- as.numeric(predict(model, testing_data)) - 1 
+acc <- mean(preds == testing_y)
+print(acc)
+```
+
+```{r logistics, echo=TRUE}
+logi <- glm(training_y~as.matrix(training_data),family=binomial(link="logit"))
+summary(logi)
+plot(logi)
+
+preds <- predict(logi, testing_data)
+preds <- ifelse(preds >= 0.5, 1, 0)
+acc <- mean(preds == testing_y)
+print(acc)
+
+```
+
+# Conclusion
+After employing basic descriptive analysis, clustring algorithm and linear regression for both players and teams, I have found some meaningful conclusions.
+
+1) The players belonging to one team share a high degree of similarity while different team's players are very different.
+
+2) The diffence between each team is mainly in their geographic region, i.e. teams of the same region have more similarities than those from different regions.
+
+3) The factor that most influence one player's average PTS is his successful rate, other positive factors include average shot distance and average dribble and the negative factor is the average touch time. Their impacting power can be seen from the player model by the estimate parameter.
+
+4) The factor that most influence one team's average PTS is his successful rate, other positive factors include average defence distance and average dribble and the negative factor includes none. Their impacting power can be seen from the team model by the estimate parameter.
+
+5) Decision Tree works better for predicting.
